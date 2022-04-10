@@ -2,10 +2,16 @@ import tkinter
 
 import matplotlib
 import numpy as np
+from datetime import datetime, timedelta
+import calendar
 import random
 from tkinter import *
 from tkinter.ttk import Combobox
-from tkinter.ttk import Checkbutton
+from statsmodels.tsa.arima.model import ARIMA
+import pmdarima as pm
+from sklearn.metrics import mean_squared_error
+from math import sqrt
+from statsmodels.tsa.arima.model import ARIMAResults
 import imgkit
 import PIL
 import seaborn as sns
@@ -28,7 +34,8 @@ sheet_2 = wb2021_2022.worksheets[0]
 
 
 year1 = 2020
-year2 = 2021
+year2 = year1 + 1
+year3 = year2 + 1
 
 
 def GetDayInMonth(year, month):
@@ -47,11 +54,11 @@ def GetDayInMonth(year, month):
     return day
 
 
-def CreateEmptyList():
+def CreateEmptyList(year):
     list = [[]]
     for month in range(1, 13):
         List1 = [[]]
-        days = GetDayInMonth(2020, month)
+        days = GetDayInMonth(year, month)
         for day in range(1, days+1):
             List2 = []
             for hour in range(1, 25):
@@ -98,17 +105,22 @@ def CreatePredictList(List):
     return List
 
 
-checkList = CreateEmptyList()
+checkList = CreateEmptyList(2020)
 ListLavina = CreateTestList(checkList)
-checkList = CreateEmptyList()
+checkList = CreateEmptyList(2021)
 ListPredictLavina = CreatePredictList(checkList)
 
-enterWeekWithYellowBlock = [0, 0, 0, 0]
-enterWeekWithRedBlock = [0, 0, 0, 0]
 
-
-def PrintGraphics(x, y, y_pred):
-    p = figure(title="Actual vs Predict", width=1350, height=900)
+def PrintGraphics(x, y, y_pred, text, rmse):
+    rmse = str(rmse)
+    method = ""
+    if text == 0:
+        method = "Linear method"
+    elif text == 1:
+        method = "Polynomial method"
+    elif text == 2:
+        method = "ARIMA method"
+    p = figure(title="Actual vs Predict and method: " + method + " and RMSE: " + rmse, width=1350, height=900)
     p.title.align = 'center'
     p.circle(x, y_pred)
     p.line(x, y, legend_label='Actual', line_width=3, line_alpha=0.4)
@@ -119,79 +131,129 @@ def PrintGraphics(x, y, y_pred):
     show(p)
 
 
-def PolynomialRegress(month):
+def GetDeltaInMonth(month, year, needDay):
+    day = 0
+    date = datetime(year, month, 1)
+    start_day_in_month = calendar.monthrange(date.year, date.month)[0]
+    if start_day_in_month != needDay:
+        day = needDay - start_day_in_month
+    return day
+
+
+def GetArimaArray(Aday, Amonth):
+    ListForArima = []
+    for years in range(2020, 2021):
+        if years == 2020:
+            for month in range(Amonth, 13):
+                days = GetDayInMonth(years, month)
+                if month == Amonth:
+                    for day in range(Aday, days + 1):
+                        for hour in range(0, 24):
+                            ListForArima.append(ListLavina[month][day][hour])
+                elif month > Amonth:
+                    for day in range(1, days + 1):
+                        for hour in range(0, 24):
+                            ListForArima.append(ListLavina[month][day][hour])
+
+        elif years == 2021:
+            for month in range(1, Amonth + 1):
+                if month < Amonth:
+                    days = GetDayInMonth(years, month)
+                    for day in range(1, days + 1):
+                        for hour in range(0, 24):
+                            ListForArima.append(ListPredictLavina[month][day][hour])
+                elif month == Amonth:
+                    for day in range(1, Aday):
+                        for hour in range(0, 24):
+                            ListForArima.append(ListPredictLavina[month][day][hour])
+    return ListForArima
+
+
+def Regress(month, countDays, numberWeek, lvl0, lvl1, lvl2, text3):
     pf = PolynomialFeatures(degree=5, include_bias=False)
-    day = GetDayInMonth(year1, month)
-    day2 = GetDayInMonth(year2, month-1)
-    coef = 1
-    lowcoef = 0.5
-    ListDay = []
+    coefForYLMMD = getYellowOrRed(lvl0)
+    coefForYYMLD = getYellowOrRed(lvl1)
+    coefForYYMMD = getYellowOrRed(lvl2)
+    ListDay = []  # список для графика дней
     ListHour = []
     ListDataActual = []
     ListDataPredict = []
     ListSecondDataTrainingTemp = []
     ListDataTemp = []
-    startBlock = 0
-    endBlock = 0
-    for chBlock in range(0, 4):
-        if enterWeekWithYellowBlock[chBlock] == 1:
-            if startBlock == 0:
-                startBlock = 1 + 7 * chBlock
-            endBlock = 7 + 7 * chBlock
-            coef = 0.9467  # coef
-        if enterWeekWithRedBlock[chBlock] == 1:
-            if startBlock == 0:
-                startBlock = 1 + 7 * chBlock
-            endBlock = 7 + 7 * chBlock
-            coef = 0.8682  # coef
-    for days in range(1, day * 24 + 1):
+
+    firstDayInPredictMonth = calendar.monthrange(2021, month)[0]
+    firstDelta = GetDeltaInMonth(month-1, 2021, firstDayInPredictMonth)
+    countDayInLastTwoMonth = calendar.monthrange(2021, month-2)[1]
+    secondDelta = GetDeltaInMonth(month, 2020, firstDayInPredictMonth)
+    countDayInLastYearMinosMonth = calendar.monthrange(2020, month-1)[1]
+    startBlock = 1 + 7 * numberWeek
+    endBlock = countDays + 7 * numberWeek
+
+    TempListForArima = GetArimaArray(startBlock, month)
+    print(TempListForArima)
+
+    for days in range(1, countDays * 24 + 1):
         ListDay.append(days)
     for hour in range(0, 24):
         ListHour.append(hour)
         ListHour.append(hour)
     x = np.array(ListHour).reshape((-1, 1))
     pf.fit(x)
-    for days in range(1, day + 1):
+
+    for days in range(startBlock, endBlock + 1):
+        countForFList = firstDelta
+        countForSList = secondDelta
         ListDataTemp.clear()
         ListSecondDataTrainingTemp.clear()
         index = 0
         for hour in range(0, 24):
-            if days <= day2:
-                ListSecondDataTrainingTemp.append(ListPredictLavina[month-1][days][hour])
-            ListDataActual.append(ListPredictLavina[month][days][hour])
-            if days != day:
-                ListDataTemp.append(ListLavina[month][days+1][hour])
-                if days <= day2:
-                    ListDataTemp.append(ListSecondDataTrainingTemp[index])
-                elif days > day2:
-                    ListDataTemp.append(ListLavina[month][days+1][hour])
-            elif days == day:
-                ListDataTemp.append(ListLavina[month+1][1][hour])
-                if days <= day2:
-                    ListDataTemp.append(ListSecondDataTrainingTemp[index])
-                elif days > day2:
-                    ListDataTemp.append(ListLavina[month+1][1][hour])
-            index += 1
-        x_ = pf.transform(x)
-        model = LinearRegression().fit(x_, ListDataTemp)
-        y_pred = model.predict(x_)
-        if startBlock < days <= endBlock:
-            for i in range(0, 48):
-                y_pred[i] = int(y_pred[i] * coef)
-        for iters in range(0, 48):
-            if y_pred[iters] < 0:
-                y_pred[iters] = int(y_pred[iters] * -1)
+            if countForFList > 0:
+                ListSecondDataTrainingTemp.append(ListPredictLavina[month - 2][countDayInLastTwoMonth-countForFList][hour])
             else:
-                y_pred[iters] = int(y_pred[iters])
-            if 0 <= iters < 8:
-                y_pred[iters] = int(y_pred[iters] * lowcoef)
-        ListDataPredict.extend(y_pred)
-    ListDataPredict = mathAverage(ListDataPredict)
-    writeArray(ListDataPredict, ListDataActual, month)
-    PrintGraphics(ListDay, ListDataActual, ListDataPredict)
+                ListSecondDataTrainingTemp.append(ListPredictLavina[month - 1][days-firstDelta][hour])
+            ListDataActual.append(ListPredictLavina[month][days][hour])
+            if countForSList > 0:
+                ListDataTemp.append(int(ListLavina[month-1][countDayInLastYearMinosMonth - countForSList][hour] / coefForYLMMD))
+            else:
+                ListDataTemp.append(int(ListLavina[month][days - secondDelta][hour] / coefForYLMMD))
+            ListDataTemp.append(int(ListSecondDataTrainingTemp[index] / coefForYYMLD))
+            index += 1
+        countForFList -= 1
+        countForSList -= 1
+        if text3 == 0:
+            model = LinearRegression().fit(x, ListDataTemp)
+            y_pred = model.predict(x)
+            ListDataPredict.extend(y_pred * coefForYYMMD)
+        elif text3 == 1:
+            x_ = pf.transform(x)
+            model = LinearRegression().fit(x_, ListDataTemp)
+            y_pred = model.predict(x_)
+            ListDataPredict.extend(y_pred * coefForYYMMD)
+    if text3 == 2:
+        model = pm.auto_arima(TempListForArima, start_p=1, start_q=1,  # find best settings for arima method
+                              test='adf',
+                              max_p=3, max_q=3,
+                              m=12,
+                              d=None,
+                              seasonal=True,
+                              start_P=0,
+                              D=1,
+                              trace=True,
+                              error_action='ignore',
+                              suppress_warnings=True,
+                              stepwise=True)
+        print(model.summary())
+        # model = ARIMA(TempListForArima, order=(1, 2, 1)).fit()
+        # yhat = abs(model.forecast(48*countDays, alpha=0.05))
+        # ListDataPredict.extend(yhat * coefForYYMMD)
+    ListDataPredict = getMathAverage(ListDataPredict)
+    rmse = sqrt(mean_squared_error(ListDataActual, ListDataPredict))  # TODo fix rmse like <100%
+    # print('Test RMSE: %.3f' % rmse)
+    # writeArray(ListDataPredict, ListDataActual, month)
+    # PrintGraphics(ListDay, ListDataActual, ListDataPredict, text3, rmse)
 
 
-def mathAverage(array):
+def getMathAverage(array):
     arraytemp = []
     for lenar in range(0, int(array.__len__() / 2)):
         average = (array[(lenar * 2)] + array[(lenar * 2 + 1)]) / 2
@@ -211,64 +273,106 @@ def writeArray(array, arraylavina, month):
     df.to_excel('./predict.xlsx')
 
 
-def writeYellowOrRed(lvl, count):
+def getYellowOrRed(lvl):
+    coef = 0
     if lvl == 1:
-        enterWeekWithYellowBlock[count-1] = 1
-    if lvl == 2:
-        enterWeekWithRedBlock[count-1] = 1
+        coef = 0.45
+    elif lvl == 2:
+        coef = 0.15
+    elif lvl == 0:
+        coef = 1
+    return coef
 
 
-def clicked():
+def getLvl(text):
     lvl = 0
-    enterMonth = int(combo.get())
-    text = int(selected.get())
-    if text == 1:
+    if text == 0:
+        lvl = 0
+    elif text == 1:
         lvl = 1
     elif text == 2:
         lvl = 2
-    if chk1_state.get():
-        writeYellowOrRed(lvl, 1)
-    if chk2_state.get():
-        writeYellowOrRed(lvl, 2)
-    if chk3_state.get():
-        writeYellowOrRed(lvl, 3)
-    if chk4_state.get():
-        writeYellowOrRed(lvl, 4)
-    PolynomialRegress(enterMonth)
+    return lvl
 
 
+def clicked():
+    enterMonth = int(combo0.get())
+    countDays = int(combo1.get())
+    numberWeek = int(combo2.get()) - 1
+    text0 = int(selected0.get())
+    text1 = int(selected1.get())
+    text2 = int(selected2.get())
+    text3 = int(selected3.get())
+    lvl0 = getLvl(text0)
+    lvl1 = getLvl(text1)
+    lvl2 = getLvl(text2)
+    Regress(enterMonth, countDays, numberWeek, lvl0, lvl1, lvl2, text3)
+
+
+# Display menu
 window.title("Interface of program")
-window.geometry('550x250')
-lbl = Label(window, text="Enter a month number")
-lbl.grid(column=0, row=0)
-combo = Combobox(window)
-combo['values'] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
-combo.current(0)
-combo.grid(column=1, row=0)
-lbl2 = Label(window, text="Add restrictions")
-lbl2.grid(column=0, row=1)
-chk1_state = BooleanVar()
-chk2_state = BooleanVar()
-chk3_state = BooleanVar()
-chk4_state = BooleanVar()
-chk1_state.set(False)
-chk2_state.set(False)
-chk3_state.set(False)
-chk4_state.set(False)
-chk1 = Checkbutton(window, text='1', var=chk1_state, width=3)
-chk2 = Checkbutton(window, text='2', var=chk2_state, width=3)
-chk3 = Checkbutton(window, text='3', var=chk3_state, width=3)
-chk4 = Checkbutton(window, text='4', var=chk4_state, width=3)
-chk1.grid(column=1, row=1)
-chk2.grid(column=2, row=1)
-chk3.grid(column=3, row=1)
-chk4.grid(column=4, row=1)
-selected = IntVar()
-rad1 = Radiobutton(window, text='Yellow', value=1, variable=selected)
-rad2 = Radiobutton(window, text='Red', value=2, variable=selected)
-rad1.grid(column=5, row=1)
-rad2.grid(column=6, row=1)
-btn = Button(window, text="Enter", command=clicked)
-btn.grid(column=0, row=2)
+window.geometry('650x330')
+lbl0 = Label(window, text="Enter a month number")
+lbl0.grid(column=0, row=0)
+combo0 = Combobox(window)
+combo0['values'] = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+combo0.current(0)
+combo0.grid(column=1, row=0)
 
+lbl1 = Label(window, text="Enter the number of days and week of reference")
+lbl1.grid(column=0, row=1)
+combo1 = Combobox(window)
+combo1['values'] = (5, 7)
+combo1.current(0)
+combo1.grid(column=1, row=1)
+combo2 = Combobox(window)
+combo2['values'] = (1, 2, 3, 4)
+combo2.current(0)
+combo2.grid(column=2, row=1)
+
+lbl2 = Label(window, text="Add settings of restrictions for prediction")
+lbl2.grid(column=0, row=2)
+selected0 = IntVar()
+rad0 = Radiobutton(window, text='NON', value=0, variable=selected0)
+rad1 = Radiobutton(window, text='Yellow', value=1, variable=selected0)
+rad2 = Radiobutton(window, text='Red', value=2, variable=selected0)
+rad0.grid(column=0, row=3)
+rad1.grid(column=1, row=3)
+rad2.grid(column=2, row=3)
+
+lbl3 = Label(window, text="Add constraint settings for the past week")
+lbl3.grid(column=0, row=4)
+selected1 = IntVar()
+radb0 = Radiobutton(window, text='NON', value=0, variable=selected1)
+radb1 = Radiobutton(window, text='Yellow', value=1, variable=selected1)
+radb2 = Radiobutton(window, text='Red', value=2, variable=selected1)
+radb0.grid(column=0, row=5)
+radb1.grid(column=1, row=5)
+radb2.grid(column=2, row=5)
+
+# settings / add constraint settings for this week past year. / like pred 2021 04 (13-18 d), past year wb 2020 04 (13-18 d)
+lbl4 = Label(window, text="Add constraint settings for this week past year")
+lbl4.grid(column=0, row=6)
+selected2 = IntVar()
+radiobutton0 = Radiobutton(window, text='NON', value=0, variable=selected2)
+radiobutton1 = Radiobutton(window, text='Yellow', value=1, variable=selected2)
+radiobutton2 = Radiobutton(window, text='Red', value=2, variable=selected2)
+radiobutton0.grid(column=0, row=7)
+radiobutton1.grid(column=1, row=7)
+radiobutton2.grid(column=2, row=7)
+
+lbl5 = Label(window, text="Enter the method of predict")
+lbl5.grid(column=0, row=8)
+selected3 = IntVar()
+predictBut0 = Radiobutton(window, text='Linear', value=0, variable=selected3)
+predictBut1 = Radiobutton(window, text='Polynomial', value=1, variable=selected3)
+predictBut2 = Radiobutton(window, text='ARIMA', value=2, variable=selected3)
+predictBut0.grid(column=0, row=9)
+predictBut1.grid(column=1, row=9)
+predictBut2.grid(column=2, row=9)
+
+btn = Button(window, text="Enter", command=clicked)
+btn.grid(column=0, row=10)
+
+# end Display menu
 window.mainloop()
