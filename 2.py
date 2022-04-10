@@ -327,6 +327,7 @@ x = np.array(List).reshape((-1, 1))
 y = np.array(AllElectric)
 List.clear()
 
+b = [[12,13,14,15,16],[67,68,69,60,61],[34,45,56,67,78]]
 # Step 2b: Transform input data
 transformer = PolynomialFeatures(degree=5, include_bias=False)
 transformer.fit(x)
