@@ -8,6 +8,7 @@ import random
 from tkinter import *
 from tkinter.ttk import Combobox
 from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.api import ExponentialSmoothing, SimpleExpSmoothing, Holt
 import pmdarima as pm
 from sklearn.metrics import mean_squared_error
 from math import sqrt
@@ -119,7 +120,9 @@ def PrintGraphics(x, y, y_pred, text, rmse):
     elif text == 1:
         method = "Polynomial method"
     elif text == 2:
-        method = "ARIMA method"
+        method = "SARIMA method"
+    elif text == 3:
+        method = "Holt-Winters method"
     p = figure(title="Actual vs Predict and method: " + method + " and RMSE: " + rmse, width=1350, height=900)
     p.title.align = 'center'
     p.circle(x, y_pred)
@@ -169,7 +172,7 @@ def GetArimaArray(Aday, Amonth):
     return ListForArima
 
 
-def Regress(month, countDays, numberWeek, lvl0, lvl1, lvl2, text3):
+def Regress(month, countDays, numberWeek, lvl0, lvl1, lvl2, text3):  # TODO пофіксити аріму
     pf = PolynomialFeatures(degree=5, include_bias=False)
     coefForYLMMD = getYellowOrRed(lvl0)
     coefForYYMLD = getYellowOrRed(lvl1)
@@ -180,8 +183,11 @@ def Regress(month, countDays, numberWeek, lvl0, lvl1, lvl2, text3):
     ListDataPredict = []
     ListSecondDataTrainingTemp = []
     ListDataTemp = []
+    ListDataHalfTemp = []
 
     firstDayInPredictMonth = calendar.monthrange(2021, month)[0]
+    checkDay = firstDayInPredictMonth
+    print(coefForYLMMD)
     firstDelta = GetDeltaInMonth(month-1, 2021, firstDayInPredictMonth)
     countDayInLastTwoMonth = calendar.monthrange(2021, month-2)[1]
     secondDelta = GetDeltaInMonth(month, 2020, firstDayInPredictMonth)
@@ -190,7 +196,6 @@ def Regress(month, countDays, numberWeek, lvl0, lvl1, lvl2, text3):
     endBlock = countDays + 7 * numberWeek
 
     TempListForArima = GetArimaArray(startBlock, month)
-    print(TempListForArima)
 
     for days in range(1, countDays * 24 + 1):
         ListDay.append(days)
@@ -206,51 +211,77 @@ def Regress(month, countDays, numberWeek, lvl0, lvl1, lvl2, text3):
         ListDataTemp.clear()
         ListSecondDataTrainingTemp.clear()
         index = 0
-        for hour in range(0, 24):
-            if countForFList > 0:
-                ListSecondDataTrainingTemp.append(ListPredictLavina[month - 2][countDayInLastTwoMonth-countForFList][hour])
+        print(checkDay)
+        for hour in range(0, 24):  # TODO refactor this
+            if countForFList < 0:
+                ListSecondDataTrainingTemp.append(ListPredictLavina[month - 2][countDayInLastTwoMonth + countForFList][hour])
+                ListDataHalfTemp.append(ListPredictLavina[month - 2][countDayInLastTwoMonth + countForFList][hour])
             else:
                 ListSecondDataTrainingTemp.append(ListPredictLavina[month - 1][days-firstDelta][hour])
+                ListDataHalfTemp.append(ListPredictLavina[month - 1][days-firstDelta][hour])
             ListDataActual.append(ListPredictLavina[month][days][hour])
-            if countForSList > 0:
-                ListDataTemp.append(int(ListLavina[month-1][countDayInLastYearMinosMonth - countForSList][hour] / coefForYLMMD))
+            if 1 <= checkDay <= 4:
+                if countForSList < 0:
+                    ListDataTemp.append(int(ListLavina[month-1][countDayInLastYearMinosMonth + countForSList][hour] / coefForYLMMD[1]))
+                else:
+                    ListDataTemp.append(int(ListLavina[month][days - secondDelta][hour] / coefForYLMMD[1]))
+                ListDataTemp.append(int(ListSecondDataTrainingTemp[index] / coefForYYMLD[1]))
+            elif checkDay == 0:
+                if countForSList < 0:
+                    ListDataTemp.append(int(ListLavina[month-1][countDayInLastYearMinosMonth + countForSList][hour] / random.uniform(coefForYYMLD[0], coefForYYMLD[1])))
+                else:
+                    ListDataTemp.append(int(ListLavina[month][days - secondDelta][hour] / random.uniform(coefForYYMLD[0], coefForYYMLD[1])))
+                ListDataTemp.append(int(ListSecondDataTrainingTemp[index] / random.uniform(coefForYYMLD[0], coefForYYMLD[1])))
             else:
-                ListDataTemp.append(int(ListLavina[month][days - secondDelta][hour] / coefForYLMMD))
-            ListDataTemp.append(int(ListSecondDataTrainingTemp[index] / coefForYYMLD))
+                if countForSList < 0:
+                    ListDataTemp.append(int(ListLavina[month-1][countDayInLastYearMinosMonth + countForSList][hour] / coefForYLMMD[0]))
+                else:
+                    ListDataTemp.append(int(ListLavina[month][days - secondDelta][hour] / coefForYLMMD[0]))
+                ListDataTemp.append(int(ListSecondDataTrainingTemp[index] / coefForYYMLD[0]))
             index += 1
-        countForFList -= 1
-        countForSList -= 1
+        checkDay += 1
+        if checkDay == 7:
+            checkDay = 0
+        countForFList += 1
+        countForSList += 1
         if text3 == 0:
             model = LinearRegression().fit(x, ListDataTemp)
             y_pred = model.predict(x)
-            ListDataPredict.extend(y_pred * coefForYYMMD)
+            ListDataPredict.extend(y_pred * coefForYYMMD[0])
         elif text3 == 1:
             x_ = pf.transform(x)
             model = LinearRegression().fit(x_, ListDataTemp)
-            y_pred = model.predict(x_)
-            ListDataPredict.extend(y_pred * coefForYYMMD)
+            y_pred = abs(model.predict(x_))
+            ListDataPredict.extend(y_pred * coefForYYMMD[0])
+        elif text3 == 3:
+            model = ExponentialSmoothing(np.asarray(ListDataTemp), seasonal_periods=7, trend='add', seasonal='add').fit()
+            y_pred = abs(model.forecast(24))
+            ListDataPredict.extend(y_pred * coefForYYMMD[0])
     if text3 == 2:
-        model = pm.auto_arima(TempListForArima, start_p=1, start_q=1,  # find best settings for arima method
-                              test='adf',
-                              max_p=3, max_q=3,
-                              m=12,
-                              d=None,
-                              seasonal=True,
-                              start_P=0,
-                              D=1,
-                              trace=True,
-                              error_action='ignore',
-                              suppress_warnings=True,
-                              stepwise=True)
-        print(model.summary())
-        # model = ARIMA(TempListForArima, order=(1, 2, 1)).fit()
-        # yhat = abs(model.forecast(48*countDays, alpha=0.05))
-        # ListDataPredict.extend(yhat * coefForYYMMD)
-    ListDataPredict = getMathAverage(ListDataPredict)
-    rmse = sqrt(mean_squared_error(ListDataActual, ListDataPredict))  # TODo fix rmse like <100%
+        # model = pm.auto_arima(TempListForArima, start_p=1, start_q=1,  # find best settings for arima method
+        #                       test='adf',
+        #                       max_p=3, max_q=3,
+        #                       m=12,
+        #                       d=None,
+        #                       seasonal=True,
+        #                       start_P=0,
+        #                       D=1,
+        #                       trace=True,
+        #                       error_action='ignore',
+        #                       suppress_warnings=True,
+        #                       stepwise=True)
+        # print(model.summary())
+        model = ARIMA(TempListForArima, order=(2, 2, 4), seasonal_order=(0, 1, 2, 7)).fit()
+        yhat = abs(model.predict(24*countDays, alpha=0.05, dynamic=True))
+        ListDataPredict.extend(yhat * coefForYYMMD[0])
+    if 0 <= text3 <= 1:
+        print("do it")
+        ListDataPredict = getMathAverage(ListDataPredict)
+    # rmse = sqrt(mean_squared_error(ListDataActual, ListDataPredict))  # TODo fix rmse like <100%
+    rmse = 100
     # print('Test RMSE: %.3f' % rmse)
     # writeArray(ListDataPredict, ListDataActual, month)
-    # PrintGraphics(ListDay, ListDataActual, ListDataPredict, text3, rmse)
+    PrintGraphics(ListDay, ListDataActual, ListDataPredict, text3, rmse)
 
 
 def getMathAverage(array):
@@ -273,14 +304,16 @@ def writeArray(array, arraylavina, month):
     df.to_excel('./predict.xlsx')
 
 
-def getYellowOrRed(lvl):
-    coef = 0
+def getYellowOrRed(lvl):  # TODO описати в вигляді тексту в диплом метод.
+    coef = []
     if lvl == 1:
-        coef = 0.45
+        coef = [random.uniform(0.45, 0.55), random.uniform(0.55, 0.75)]
+        # coef = random.uniform(0.45, 0.75)
     elif lvl == 2:
-        coef = 0.15
+        coef = [random.uniform(0.05, 0.1), random.uniform(0.15, 0.2)]
+        # coef = random.uniform(0.05, 0.17)
     elif lvl == 0:
-        coef = 1
+        coef = [1, 1]
     return coef
 
 
@@ -367,9 +400,11 @@ selected3 = IntVar()
 predictBut0 = Radiobutton(window, text='Linear', value=0, variable=selected3)
 predictBut1 = Radiobutton(window, text='Polynomial', value=1, variable=selected3)
 predictBut2 = Radiobutton(window, text='ARIMA', value=2, variable=selected3)
+predictBut3 = Radiobutton(window, text='Holt-Winters', value=3, variable=selected3)
 predictBut0.grid(column=0, row=9)
 predictBut1.grid(column=1, row=9)
 predictBut2.grid(column=2, row=9)
+predictBut3.grid(column=3, row=9)
 
 btn = Button(window, text="Enter", command=clicked)
 btn.grid(column=0, row=10)
