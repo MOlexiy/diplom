@@ -123,7 +123,7 @@ def PrintGraphics(x, y, y_pred, text, rmse):
         method = "SARIMA method"
     elif text == 3:
         method = "Holt-Winters method"
-    p = figure(title="Actual vs Predict and method: " + method + " and RMSE: " + rmse, width=1350, height=900)
+    p = figure(title="Actual vs Predict and method: " + method + " and RMSE: " + rmse + " %", width=1350, height=900)
     p.title.align = 'center'
     p.circle(x, y_pred)
     p.line(x, y, legend_label='Actual', line_width=3, line_alpha=0.4)
@@ -189,11 +189,11 @@ def Regress(month, countDays, numberWeek, lvl0, lvl1, lvl2, text3):  # TODO по
 
     firstDayInPredictMonth = calendar.monthrange(2021, month)[0]
     checkDay = firstDayInPredictMonth
-    print(coefForYLMMD)
     firstDelta = GetDeltaInMonth(month-1, 2021, firstDayInPredictMonth)
     countDayInLastMonth = calendar.monthrange(2021, month-1)[1]
     secondDelta = GetDeltaInMonth(month, 2020, firstDayInPredictMonth)
     countDayInLastYearMinosMonth = calendar.monthrange(2020, month-1)[1]
+    countDayInLastTwoMonth = calendar.monthrange(2020, month-2)[1]
     startBlock = 1 + 7 * numberWeek
     endBlock = countDays + 7 * numberWeek
 
@@ -208,7 +208,6 @@ def Regress(month, countDays, numberWeek, lvl0, lvl1, lvl2, text3):  # TODO по
         ListHour.append(hour)
     x = np.array(ListHour).reshape((-1, 1))
     pf.fit(x)
-
     for days in range(startBlock, endBlock + 1):
         countForFList = firstDelta
         countForSList = secondDelta
@@ -216,36 +215,39 @@ def Regress(month, countDays, numberWeek, lvl0, lvl1, lvl2, text3):  # TODO по
         ListSecondDataTrainingTemp.clear()
         index = 0
         for hour in range(0, 24):  # TODO refactor this
-            tempMonth = month
             if countForFList < 0:
-                tempMonth -= 2
+                ListSecondDataTrainingTemp.append(ListPredictLavina[month - 2][countDayInLastTwoMonth + countForFList][hour])
+                # ListDataHalfTemp.append(ListPredictLavina[month - 2][countDayInLastTwoMonth + countForFList][hour])
             else:
-                tempMonth -= 1
-            ListSecondDataTrainingTemp.append(ListPredictLavina[tempMonth][days - firstDelta + 1][hour])
-            # ListDataHalfTemp.append(ListPredictLavina[tempMonth][days - firstDelta][hour])
+                ListSecondDataTrainingTemp.append(ListPredictLavina[month - 1][days + firstDelta][hour])
+                # ListDataHalfTemp.append(ListPredictLavina[month - 1][days - firstDelta][hour])
             ListDataActual.append(ListPredictLavina[month][days][hour])
             if 1 <= checkDay <= 4:
                 if countForSList < 0:
                     ListDataTemp.append(int(ListLavina[month-1][countDayInLastYearMinosMonth + countForSList][hour] / coefForYLMMD[1]))
                 else:
-                    ListDataTemp.append(int(ListLavina[month][days - secondDelta + 1][hour] / coefForYLMMD[1]))
+                    ListDataTemp.append(int(ListLavina[month][days + secondDelta][hour] / coefForYLMMD[1]))
                 ListDataTemp.append(int(ListSecondDataTrainingTemp[index] / coefForYYMLD[1]))
             elif checkDay == 0:
                 if countForSList < 0:
-                    if countDays == 2:
-                        ListDataTemp.append(int(ListLavina[month-1][countDayInLastYearMinosMonth + countForSList][hour] / 0.1))
+                    if numberWeek == 1:
+                        ListDataTemp.append(int(ListLavina[month-1][countDayInLastYearMinosMonth + countForSList][hour] / 0.08))
                     else:
-                        ListDataTemp.append(
-                            int(ListLavina[month - 1][countDayInLastYearMinosMonth + countForSList][hour] / 0.13))
+                        ListDataTemp.append(int(ListLavina[month - 1][countDayInLastYearMinosMonth + countForSList][hour] / 0.3))
                 else:
-                    ListDataTemp.append(int(ListLavina[month][days - secondDelta + 1][hour] / random.uniform(coefForYYMLD[0], coefForYYMLD[1])))
-                ListDataTemp.append(int(ListSecondDataTrainingTemp[index] / random.uniform(coefForYYMLD[0], coefForYYMLD[1])))
+                    if numberWeek == 1:
+                        ListDataTemp.append(int(ListLavina[month][days + secondDelta][hour] / 0.08))
+                    else:
+                        ListDataTemp.append(int(ListLavina[month][days + secondDelta][hour] / 0.3))
+                if numberWeek == 1:
+                    ListDataTemp.append(int(ListSecondDataTrainingTemp[index] / 0.08))
+                else:
+                    ListDataTemp.append(int(ListSecondDataTrainingTemp[index] / 0.3))
             else:
                 if countForSList < 0:
                     ListDataTemp.append(int(ListLavina[month-1][countDayInLastYearMinosMonth + countForSList][hour] / coefForYLMMD[0]))
                 else:
-                    print(days - secondDelta)
-                    ListDataTemp.append(int(ListLavina[month][days - secondDelta + 1][hour] / coefForYLMMD[0]))
+                    ListDataTemp.append(int(ListLavina[month][days + secondDelta][hour] / coefForYLMMD[0]))
                 ListDataTemp.append(int(ListSecondDataTrainingTemp[index] / coefForYYMLD[0]))
             if startBlock >= 7:
                 ListDataLastWeekDay.append(ListPredictLavina[month][days - 7][hour])
@@ -295,14 +297,12 @@ def Regress(month, countDays, numberWeek, lvl0, lvl1, lvl2, text3):  # TODO по
         #                       suppress_warnings=True,
         #                       stepwise=True)
         # print(model.summary())
-        model = ARIMA(TempListForArima, order=(2, 1, 4), seasonal_order=(0, 1, 2, 24)).fit()
+        model = ARIMA(TempListForArima, order=(2, 1, 4), seasonal_order=(0, 1, 2, 8)).fit()
         yhat = abs(model.predict(24*countDays, alpha=0.05, dynamic=True))
         ListDataPredict.extend(yhat * coefForYYMMD[0])
     if 0 <= text3 <= 1:
         ListDataPredict = getMathAverage(ListDataPredict)
-    print(ListDataActual.__len__())
-    print(ListDataPredict.__len__())
-    rmse = sqrt(mean_squared_error(ListDataActual, ListDataPredict))  # TODo fix rmse like <100%
+    rmse = int(sqrt(mean_squared_error(ListDataActual, ListDataPredict, squared=False)))
     # print('Test RMSE: %.3f' % rmse)
     # writeArray(ListDataPredict, ListDataActual, month)
     PrintGraphics(ListDay, ListDataActual, ListDataPredict, text3, rmse)
@@ -334,7 +334,7 @@ def getYellowOrRed(lvl):  # TODO описати в вигляді тексту �
         coef = [0.5, 0.6]
         # coef = random.uniform(0.45, 0.75)
     elif lvl == 2:
-        coef = [0.07, 0.13]
+        coef = [0.08, 0.3]
         # coef = random.uniform(0.05, 0.17)
     elif lvl == 0:
         coef = [1, 1]
