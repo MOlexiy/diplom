@@ -2,7 +2,7 @@ import tkinter
 
 import matplotlib
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 import calendar
 import random
 from tkinter import *
@@ -40,18 +40,7 @@ year3 = year2 + 1
 
 
 def GetDayInMonth(year, month):
-    day = 0
-    coef = 0
-    if year % 4 == 0:
-        coef = 1
-    else:
-        coef = 0
-    if month == 1 or month == 3 or month == 5 or month == 7 or month == 8 or month == 10 or month == 12:
-        day = 31
-    elif month == 2:
-        day = 28 + coef
-    else:
-        day = 30
+    day = calendar.monthrange(year, month)[1]
     return day
 
 
@@ -74,7 +63,7 @@ def CreateTestList(List):
     row = 7
     percent = 0
     for month in range(1, 13):
-        days = GetDayInMonth(2020, month)
+        days = GetDayInMonth(year1, month)
         for day in range(1, days+1):
             for hour in range(0, 24):
                 if sheet_1[row][6].value == hour:
@@ -92,7 +81,7 @@ def CreatePredictList(List):
     row = 7
     percent = 52
     for month in range(1, 13):
-        days = GetDayInMonth(2021, month)
+        days = GetDayInMonth(year2, month)
         for day in range(1, days + 1):
             for hour in range(0, 24):
                 if sheet_2[row][5].value == hour:  # Так как ексель с пропущенными данными, то мы их добавляем рандомайзером от 1 до 10
@@ -106,9 +95,9 @@ def CreatePredictList(List):
     return List
 
 
-checkList = CreateEmptyList(2020)
+checkList = CreateEmptyList(year1)
 ListLavina = CreateTestList(checkList)
-checkList = CreateEmptyList(2021)
+checkList = CreateEmptyList(year2)
 ListPredictLavina = CreatePredictList(checkList)
 
 
@@ -145,8 +134,8 @@ def GetDeltaInMonth(month, year, needDay):
 
 def GetArimaArray(Aday, Amonth):
     ListForArima = []
-    for years in range(2020, 2021):
-        if years == 2020:
+    for years in range(year1, year2):
+        if years == year1:
             for month in range(Amonth, 13):
                 days = GetDayInMonth(years, month)
                 if month == Amonth:
@@ -158,7 +147,7 @@ def GetArimaArray(Aday, Amonth):
                         for hour in range(0, 24):
                             ListForArima.append(ListLavina[month][day][hour])
 
-        elif years == 2021:
+        elif years == year2:
             for month in range(1, Amonth + 1):
                 if month < Amonth:
                     days = GetDayInMonth(years, month)
@@ -187,13 +176,13 @@ def Regress(month, countDays, numberWeek, lvl0, lvl1, lvl2, text3):  # TODO по
     ListDataTemp = []
     ListDataHalfTemp = []
 
-    firstDayInPredictMonth = calendar.monthrange(2021, month)[0]
+    firstDayInPredictMonth = calendar.monthrange(year2, month)[0]
     checkDay = firstDayInPredictMonth
-    firstDelta = GetDeltaInMonth(month-1, 2021, firstDayInPredictMonth)
-    countDayInLastMonth = calendar.monthrange(2021, month-1)[1]
-    secondDelta = GetDeltaInMonth(month, 2020, firstDayInPredictMonth)
-    countDayInLastYearMinosMonth = calendar.monthrange(2020, month-1)[1]
-    countDayInLastTwoMonth = calendar.monthrange(2020, month-2)[1]
+    firstDelta = GetDeltaInMonth(month-1, year2, firstDayInPredictMonth)
+    countDayInLastMonth = calendar.monthrange(year2, month-1)[1]
+    secondDelta = GetDeltaInMonth(month, year1, firstDayInPredictMonth)
+    countDayInLastYearMinosMonth = calendar.monthrange(year1, month-1)[1]
+    countDayInLastTwoMonth = calendar.monthrange(year1, month-2)[1]
     startBlock = 1 + 7 * numberWeek
     endBlock = countDays + 7 * numberWeek
 
@@ -201,6 +190,7 @@ def Regress(month, countDays, numberWeek, lvl0, lvl1, lvl2, text3):  # TODO по
 
     for days in range(1, countDays * 24 + 1):
         ListDay.append(days)
+
     for hour in range(0, 24):
         ListHour.append(hour)
         ListHour.append(hour)
@@ -214,7 +204,7 @@ def Regress(month, countDays, numberWeek, lvl0, lvl1, lvl2, text3):  # TODO по
         ListDataTemp.clear()
         ListSecondDataTrainingTemp.clear()
         index = 0
-        for hour in range(0, 24):  # TODO refactor this
+        for hour in range(0, 24):
             if countForFList < 0:
                 ListSecondDataTrainingTemp.append(ListPredictLavina[month - 2][countDayInLastTwoMonth + countForFList][hour])
                 # ListDataHalfTemp.append(ListPredictLavina[month - 2][countDayInLastTwoMonth + countForFList][hour])
@@ -238,11 +228,11 @@ def Regress(month, countDays, numberWeek, lvl0, lvl1, lvl2, text3):  # TODO по
                     if numberWeek == 1:
                         ListDataTemp.append(int(ListLavina[month][days + secondDelta][hour] / 0.08))
                     else:
-                        ListDataTemp.append(int(ListLavina[month][days + secondDelta][hour] / 0.3))
+                        ListDataTemp.append(int(ListLavina[month][days + secondDelta][hour] / 0.35))
                 if numberWeek == 1:
                     ListDataTemp.append(int(ListSecondDataTrainingTemp[index] / 0.08))
                 else:
-                    ListDataTemp.append(int(ListSecondDataTrainingTemp[index] / 0.3))
+                    ListDataTemp.append(int(ListSecondDataTrainingTemp[index] / 0.35))
             else:
                 if countForSList < 0:
                     ListDataTemp.append(int(ListLavina[month-1][countDayInLastYearMinosMonth + countForSList][hour] / coefForYLMMD[0]))
@@ -297,14 +287,15 @@ def Regress(month, countDays, numberWeek, lvl0, lvl1, lvl2, text3):  # TODO по
         #                       suppress_warnings=True,
         #                       stepwise=True)
         # print(model.summary())
-        model = ARIMA(TempListForArima, order=(2, 1, 4), seasonal_order=(0, 1, 2, 8)).fit()
-        yhat = abs(model.predict(24*countDays, alpha=0.05, dynamic=True))
+        model = ARIMA(TempListForArima, order=(2, 1, 4), seasonal_order=(0, 1, 1, 12)).fit()
+        countOfDay = int(24 * countDays)
+        yhat = abs(model.predict(start=5713, end=5712 + countOfDay, alpha=0.05, dynamic=False))
         ListDataPredict.extend(yhat * coefForYYMMD[0])
     if 0 <= text3 <= 1:
         ListDataPredict = getMathAverage(ListDataPredict)
     rmse = int(sqrt(mean_squared_error(ListDataActual, ListDataPredict, squared=False)))
     # print('Test RMSE: %.3f' % rmse)
-    # writeArray(ListDataPredict, ListDataActual, month)
+    writeArray(ListDataPredict, ListDataActual, countDays)
     PrintGraphics(ListDay, ListDataActual, ListDataPredict, text3, rmse)
 
 
@@ -316,11 +307,10 @@ def getMathAverage(array):
     return arraytemp
 
 
-def writeArray(array, arraylavina, month):
-    day = GetDayInMonth(year1, month)
+def writeArray(array, arraylavina, countDays):
     array2 = []
     array3 = []
-    for days in range(1, day+1):
+    for days in range(1, countDays + 1):
         for hour in range(0, 24):
             array2.append(hour)
             array3.append(days)
@@ -328,13 +318,13 @@ def writeArray(array, arraylavina, month):
     df.to_excel('./predict.xlsx')
 
 
-def getYellowOrRed(lvl):  # TODO описати в вигляді тексту в диплом метод.
+def getYellowOrRed(lvl):
     coef = []
     if lvl == 1:
         coef = [0.5, 0.6]
         # coef = random.uniform(0.45, 0.75)
     elif lvl == 2:
-        coef = [0.08, 0.3]
+        coef = [0.075, 0.35]
         # coef = random.uniform(0.05, 0.17)
     elif lvl == 0:
         coef = [1, 1]
